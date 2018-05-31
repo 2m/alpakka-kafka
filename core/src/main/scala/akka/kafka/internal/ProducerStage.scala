@@ -157,9 +157,9 @@ private[kafka] object ProducerStage {
             }
           })
           val future: Future[ResultOrPassThrough[K, V, P]] = r.future
-          push(stage.out, future)
+          push(stage.out, future.asInstanceOf[Future[OUT]])
         case pt: PassThroughMessage[K, V, P] =>
-          push(stage.out, Future.successful(PassThroughResult[K, V, P](pt.passThrough)))
+          push(stage.out, Future.successful(PassThroughResult[K, V, P](pt.passThrough)).asInstanceOf[Future[OUT]])
 
       }
     }
