@@ -32,7 +32,7 @@ import scala.concurrent.{Future, Promise}
   final val actorNumber = KafkaConsumerActor.Internal.nextNumber()
   final def consumerFuture: Future[ActorRef] = consumerPromise.future
 
-  private val partitionLogLevel = if (settings.wakeupDebug) Logging.InfoLevel else Logging.DebugLevel
+  private val partitionLogLevel = Logging.DebugLevel
 
   final def configureSubscription(): Unit = {
     val partitionAssignedCB = getAsyncCallback[Set[TopicPartition]] { assignedTps =>
