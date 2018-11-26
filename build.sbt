@@ -221,7 +221,7 @@ commands += Command.command("dockerComposeTestAll") { state ⇒
 
 lazy val docs = project
   .in(file("docs"))
-  .enablePlugins(AkkaParadoxPlugin, ParadoxSitePlugin)
+  .enablePlugins(AkkaParadoxPlugin, ParadoxSitePlugin, GhpagesPlugin)
   .settings(commonSettings)
   .settings(addMappingsToSiteDir(LocalRootProject / ScalaUnidoc / packageDoc / mappings, SiteScaladoc / siteSubdirName))
   .settings(
@@ -251,7 +251,11 @@ lazy val docs = project
       "scaladoc.com.typesafe.config.base_url" -> s"https://lightbend.github.io/config/latest/api/",
       "javadoc.org.apache.kafka.base_url" -> s"https://kafka.apache.org/$kafkaVersionForDocs/javadoc/"
     ),
-    resolvers += Resolver.jcenterRepo
+    resolvers += Resolver.jcenterRepo,
+    git.remoteRepo := "git@github.com:akka/akka.github.com",
+    ghpagesBranch := "master",
+    ghpagesNoJekyll := false,
+    ghpagesCleanSite / excludeFilter := AllPassFilter // keep all old docs
   )
 
 lazy val benchmarks = project

@@ -12,6 +12,11 @@ before_install:
   - sudo mv docker-compose /usr/local/bin
   # fetch full history for correct current and previous version detection
   - git fetch --unshallow
+  # prepare deployment key
+  - eval "$(ssh-agent -s)"
+  - ssh-add <(echo "$DEPLOYMENT_KEY" | base64 -d)
+  - git config --global user.name "$USER"
+  - git config --global user.email "$TRAVIS_BUILD_NUMBER@$TRAVIS_COMMIT"
 
 script:
   - sbt -jvm-opts .jvmopts-travis "$CMD"
@@ -49,6 +54,8 @@ jobs:
 
     - stage: publish
       env: CMD="+publish"
+      jdk: oraclejdk8
+    - env: CMD="docs/ghpagesPushSite"
       jdk: oraclejdk8
 
 stages:
