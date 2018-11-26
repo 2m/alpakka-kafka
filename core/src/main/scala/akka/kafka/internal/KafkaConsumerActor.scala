@@ -147,7 +147,6 @@ import scala.util.control.{NoStackTrace, NonFatal}
   private val pollMsg = Poll(this, periodic = true)
   private val delayedPollMsg = Poll(this, periodic = false)
   private val pollTimeout = settings.pollTimeout.asJava
-  private def pollInterval() = settings.pollInterval
 
   /** Limits the blocking on offsetForTimes */
   private val offsetForTimesTimeout = settings.getOffsetForTimesTimeout
@@ -164,7 +163,6 @@ import scala.util.control.{NoStackTrace, NonFatal}
   private var committedOffsets = Map.empty[TopicPartition, OffsetAndMetadata]
   private var commitRefreshDeadline: Option[Deadline] = None
   private var initialPoll = true
-  private var wakeups = 0
   private var stopInProgress = false
   private var delayedPollInFlight = false
 
