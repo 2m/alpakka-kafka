@@ -163,7 +163,6 @@ import scala.util.control.NonFatal
   private var commitRequestedOffsets = Map.empty[TopicPartition, OffsetAndMetadata]
   private var committedOffsets = Map.empty[TopicPartition, OffsetAndMetadata]
   private var commitRefreshDeadline: Option[Deadline] = None
-  private var initialPoll = true
   private var stopInProgress = false
   private var delayedPollInFlight = false
 
@@ -361,11 +360,8 @@ import scala.util.control.NonFatal
 
     val currentAssignmentsJava = consumer.assignment()
 
-    def tryPoll(timeout: java.time.Duration): ConsumerRecords[K, V] = {
-      val records = consumer.poll(timeout)
-      initialPoll = false
-      records
-    }
+    def tryPoll(timeout: java.time.Duration): ConsumerRecords[K, V] =
+      consumer.poll(timeout)
 
     try {
       if (requests.isEmpty) {
