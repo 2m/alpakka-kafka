@@ -6,6 +6,7 @@
 package akka.kafka.internal
 
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.locks.LockSupport
 import java.util.regex.Pattern
 
 import akka.Done
@@ -31,7 +32,7 @@ import org.apache.kafka.common.{Metric, MetricName, TopicPartition}
 import scala.collection.JavaConverters._
 import scala.concurrent.duration._
 import scala.util.Try
-import scala.util.control.{NoStackTrace, NonFatal}
+import scala.util.control.NonFatal
 
 /**
  * Internal API.
@@ -374,7 +375,20 @@ import scala.util.control.{NoStackTrace, NonFatal}
           if (!rawResult.isEmpty)
             throw new IllegalStateException(s"Got ${rawResult.count} unexpected messages")
         consumer.pause(currentAssignmentsJava)
-        checkNoResult(tryPoll(pollTimeout))
+        checkNoResult(tryPoll(Duration.Zero.asJava))
+
+        // COMMIT PERFORMANCE OPTIMIZATION
+        // For commits we try to avoid blocking poll because a commit normally succeeds after a few
+        // poll(0). Using poll(1) will always block for 1 ms, since there are no messages.
+        // Therefore we do 10 poll(0) with short 10 μs delay followed by 1 poll(1).
+        // If it's still not completed it will be tried again after the scheduled Poll.
+        var i = 10
+        while (i > 0 && commitsInProgress > 0) {
+          LockSupport.parkNanos(10 * 1000)
+          val pollTimeout = if (i == 1) 1.milli else Duration.Zero
+          checkNoResult(tryPoll(pollTimeout.asJava))
+          i -= 1
+        }
       } else {
         // resume partitions to fetch
         val partitionsToFetch: Set[TopicPartition] = requests.values.flatMap(_.topics)(collection.breakOut)
