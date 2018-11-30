@@ -163,6 +163,8 @@ import scala.util.control.NonFatal
   private var commitRequestedOffsets = Map.empty[TopicPartition, OffsetAndMetadata]
   private var committedOffsets = Map.empty[TopicPartition, OffsetAndMetadata]
   private var commitRefreshDeadline: Option[Deadline] = None
+  private var initialPoll = true
+  private var initialPolls = 0
   private var stopInProgress = false
   private var delayedPollInFlight = false
 
@@ -331,7 +333,10 @@ import scala.util.control.NonFatal
   }
 
   def scheduleFirstPollTask(): Unit =
-    if (!timers.isTimerActive(PollTask)) schedulePollTask()
+    if (!timers.isTimerActive(PollTask)) {
+      initialPolls += 1
+      schedulePollTask()
+    }
 
   def schedulePollTask(): Unit =
     timers.startSingleTimer(PollTask, pollMsg, settings.pollInterval)
@@ -360,8 +365,11 @@ import scala.util.control.NonFatal
 
     val currentAssignmentsJava = consumer.assignment()
 
-    def tryPoll(timeout: java.time.Duration): ConsumerRecords[K, V] =
-      consumer.poll(timeout)
+    def tryPoll(timeout: java.time.Duration): ConsumerRecords[K, V] = {
+      val records = consumer.poll(timeout)
+      initialPoll = false
+      records
+    }
 
     try {
       if (requests.isEmpty) {

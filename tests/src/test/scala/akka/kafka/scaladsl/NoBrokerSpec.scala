@@ -23,8 +23,7 @@ class NoBrokerSpec
 
   "A Consumer" must {
 
-//    "fail if Kafka broker does not exist" in assertAllStagesStopped {
-    "fail if Kafka broker does not exist" ignore {
+    "fail if Kafka broker does not exist" in assertAllStagesStopped {
       val topic1 = createTopicName(1)
       val group1 = createGroupId(1)
 
