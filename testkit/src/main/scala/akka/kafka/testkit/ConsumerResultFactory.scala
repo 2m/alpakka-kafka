@@ -56,7 +56,7 @@ object ConsumerResultFactory {
 
   def transactionalMessage[K, V](
       record: ConsumerRecord[K, V],
-      partitionOffset: PartitionOffsetCommittedMarker,
+      partitionOffset: PartitionOffsetCommittedMarker
   ): ConsumerMessage.TransactionalMessage[K, V] = ConsumerMessage.TransactionalMessage(record, partitionOffset)
 
 }
