@@ -87,10 +87,20 @@ private class DefaultProducerStageLogic[K, V, P, IN <: Envelope[K, V, P], OUT <:
     override def onPull(): Unit = tryPull(stage.in)
   })
 
+  def beforeSend(e: Envelope[K, V, P]) = ()
+  def duplicate(e: Envelope[K, V, P]) = false
+
   setHandler(
     stage.in,
     new InHandler {
-      override def onPush(): Unit = produce(grab(stage.in))
+      override def onPush(): Unit = {
+        val msg = grab(stage.in)
+        if (!duplicate(msg)) {
+          produce(msg)
+        } else {
+          log.debug(s"got a duplicate $msg")
+        }
+      }
 
       override def onUpstreamFinish(): Unit = {
         inIsClosed = true
@@ -109,6 +119,8 @@ private class DefaultProducerStageLogic[K, V, P, IN <: Envelope[K, V, P], OUT <:
   def produce(in: Envelope[K, V, P]): Unit =
     in match {
       case msg: Message[K, V, P] =>
+        log.debug(s"[$this] Sending $msg")
+        beforeSend(msg)
         val r = Promise[Result[K, V, P]]
         awaitingConfirmation.incrementAndGet()
         producer.send(msg.record, sendCallback(r, onSuccess = metadata => {

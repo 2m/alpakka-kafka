@@ -44,11 +44,13 @@ private object TransactionalProducerStage {
 
   sealed trait TransactionBatch {
     def updated(partitionOffset: PartitionOffset): TransactionBatch
+    def seen(partitionOffset: PartitionOffset): Boolean
   }
 
   final class EmptyTransactionBatch extends TransactionBatch {
     override def updated(partitionOffset: PartitionOffset): TransactionBatch =
       new NonemptyTransactionBatch(partitionOffset)
+    override def seen(partitionOffset: PartitionOffset): Boolean = false
   }
 
   final class NonemptyTransactionBatch(head: PartitionOffset,
@@ -73,6 +75,12 @@ private object TransactionalProducerStage {
       )
       new NonemptyTransactionBatch(partitionOffset, offsets)
     }
+
+    override def toString(): String =
+      s"NonemptyTransactionBatch($head=head, tail=$tail)"
+
+    override def seen(partitionOffset: PartitionOffset): Boolean =
+      tail.getOrElse(partitionOffset.key, -1L) >= partitionOffset.offset
   }
 
 }
@@ -99,6 +107,7 @@ private final class TransactionalProducerStageLogic[K, V, P](stage: Transactiona
   private val messageDrainInterval = 10.milliseconds
 
   private var batchOffsets = TransactionBatch.empty
+  private var sentBatchOffsets = TransactionBatch.empty
 
   override def preStart(): Unit = {
     initTransactions()
@@ -118,10 +127,13 @@ private final class TransactionalProducerStageLogic[K, V, P](stage: Transactiona
   }
 
   private def suspendDemand(): Unit =
-    setHandler(stage.out, new OutHandler {
-      // suspend demand while a commit is in process so we can drain any outstanding message acknowledgements
-      override def onPull(): Unit = ()
-    })
+    setHandler(
+      stage.out,
+      new OutHandler {
+        // suspend demand while a commit is in process so we can drain any outstanding message acknowledgements
+        override def onPull(): Unit = ()
+      }
+    )
 
   override protected def onTimer(timerKey: Any): Unit =
     if (timerKey == commitSchedulerKey) {
@@ -143,7 +155,9 @@ private final class TransactionalProducerStageLogic[K, V, P](stage: Transactiona
 
   override val onMessageAckCb: AsyncCallback[Envelope[K, V, P]] =
     getAsyncCallback[Envelope[K, V, P]](_.passThrough match {
-      case o: ConsumerMessage.PartitionOffset => batchOffsets = batchOffsets.updated(o)
+      case o: ConsumerMessage.PartitionOffset =>
+        batchOffsets = batchOffsets.updated(o)
+        log.debug(s"[$this] updating batch offsets with [$o], new batch offsets: $batchOffsets")
       case _ =>
     })
 
@@ -160,6 +174,21 @@ private final class TransactionalProducerStageLogic[K, V, P](stage: Transactiona
     super.onCompletionFailure(ex)
   }
 
+  override def beforeSend(e: Envelope[K, V, P]): Unit = e.passThrough match {
+    case o: ConsumerMessage.PartitionOffset =>
+      sentBatchOffsets = sentBatchOffsets.updated(o)
+    case _ =>
+      throw new IllegalArgumentException("Trying to send something without partition offset information")
+  }
+
+  override def duplicate(e: Envelope[K, V, P]) = e.passThrough match {
+    case o: ConsumerMessage.PartitionOffset => sentBatchOffsets.seen(o)
+    case _ =>
+      throw new IllegalArgumentException(
+        "Trying to check for duplication something without partition offset information"
+      )
+  }
+
   private def commitTransaction(batch: NonemptyTransactionBatch, beginNewTransaction: Boolean): Unit = {
     val group = batch.group
     log.debug("Committing transaction for consumer group '{}' with offsets: {}", group, batch.offsetMap())
@@ -167,6 +196,7 @@ private final class TransactionalProducerStageLogic[K, V, P](stage: Transactiona
     producer.sendOffsetsToTransaction(offsetMap, group)
     producer.commitTransaction()
     batchOffsets = TransactionBatch.empty
+    sentBatchOffsets = TransactionBatch.empty
     if (beginNewTransaction) {
       beginTransaction()
       resumeDemand()
