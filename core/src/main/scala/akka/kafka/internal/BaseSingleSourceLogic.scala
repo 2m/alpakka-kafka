@@ -60,10 +60,6 @@ import scala.concurrent.{ExecutionContext, Future}
       case (_, Terminated(ref)) if ref == consumerActor =>
         failStage(new ConsumerFailed())
     }
-    consumerActor = createConsumerActor()
-    sourceActor.watch(consumerActor)
-
-    configureSubscription()
   }
 
   protected def createConsumerActor(): ActorRef
@@ -101,13 +97,23 @@ import scala.concurrent.{ExecutionContext, Future}
     consumerActor.tell(KafkaConsumerActor.Internal.RequestMessages(requestId, tps), sourceActor.ref)
   }
 
-  setHandler(shape.out, new OutHandler {
-    override def onPull(): Unit =
-      pump()
+  setHandler(
+    shape.out,
+    new OutHandler {
+      override def onPull(): Unit = {
+        if (consumerActor == null) {
+          log.debug(s"Delayed init of consumer actor")
+          consumerActor = createConsumerActor()
+          sourceActor.watch(consumerActor)
+          configureSubscription()
+        }
+        pump()
+      }
 
-    override def onDownstreamFinish(): Unit =
-      performShutdown()
-  })
+      override def onDownstreamFinish(): Unit =
+        performShutdown()
+    }
+  )
 
   override def postStop(): Unit = {
     onShutdown()
