@@ -9,7 +9,7 @@ import akka.actor.{ActorRef, ExtendedActorSystem, Terminated}
 import akka.annotation.InternalApi
 import akka.kafka.Subscriptions._
 import akka.kafka._
-import akka.stream.{ActorMaterializerHelper, SourceShape}
+import akka.stream.{ActorMaterializerHelper, Attributes, SourceShape}
 import org.apache.kafka.common.TopicPartition
 
 import scala.concurrent.{Future, Promise}
@@ -22,8 +22,9 @@ import scala.concurrent.{Future, Promise}
 @InternalApi private abstract class SingleSourceLogic[K, V, Msg](
     shape: SourceShape[Msg],
     settings: ConsumerSettings[K, V],
-    subscription: Subscription
-) extends BaseSingleSourceLogic[K, V, Msg](shape) {
+    subscription: Subscription,
+    attributes: Attributes
+) extends BaseSingleSourceLogic[K, V, Msg](shape, attributes) {
 
   override protected def logSource: Class[_] = classOf[SingleSourceLogic[K, V, Msg]]
 
@@ -52,6 +53,8 @@ import scala.concurrent.{Future, Promise}
             _.tell(TopicPartitionsAssigned(autoSubscription, assignedTps), sourceActor.ref)
           }
           if (assignedTps.nonEmpty) {
+            println("calling and waiting for partitionAssignedCB")
+            //Await.ready(partitionAssignedCB.invokeWithFeedback(assignedTps), 10.seconds)
             partitionAssignedCB.invoke(assignedTps)
           }
         },
@@ -60,6 +63,8 @@ import scala.concurrent.{Future, Promise}
             _.tell(TopicPartitionsRevoked(autoSubscription, revokedTps), sourceActor.ref)
           }
           if (revokedTps.nonEmpty) {
+            println("calling and waiting for partitionRevokedCB")
+            //Await.ready(partitionRevokedCB.invokeWithFeedback(revokedTps), 10.seconds)
             partitionRevokedCB.invoke(revokedTps)
           }
         }

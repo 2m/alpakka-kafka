@@ -21,9 +21,10 @@ private[kafka] abstract class KafkaSourceStage[K, V, Msg](stageName: String)
 
   override protected def initialAttributes: Attributes = Attributes.name(stageName)
 
-  protected def logic(shape: SourceShape[Msg]): GraphStageLogic with Control
+  protected def logic(shape: SourceShape[Msg], attributes: Attributes): GraphStageLogic with Control
+
   override def createLogicAndMaterializedValue(inheritedAttributes: Attributes) = {
-    val result = logic(shape)
+    val result = logic(shape, inheritedAttributes)
     (result, result)
   }
 }

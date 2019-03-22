@@ -8,7 +8,7 @@ package akka.kafka.internal
 import akka.actor.ActorRef
 import akka.annotation.InternalApi
 import akka.kafka.ManualSubscription
-import akka.stream.SourceShape
+import akka.stream.{Attributes, SourceShape}
 
 import scala.concurrent.Future
 
@@ -20,8 +20,9 @@ import scala.concurrent.Future
 @InternalApi private abstract class ExternalSingleSourceLogic[K, V, Msg](
     shape: SourceShape[Msg],
     _consumerActor: ActorRef,
-    subscription: ManualSubscription
-) extends BaseSingleSourceLogic[K, V, Msg](shape) {
+    subscription: ManualSubscription,
+    attributes: Attributes
+) extends BaseSingleSourceLogic[K, V, Msg](shape, attributes) {
 
   final override protected def logSource: Class[_] = classOf[ExternalSingleSourceLogic[K, V, Msg]]
 

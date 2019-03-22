@@ -12,7 +12,7 @@ import akka.kafka._
 import akka.kafka.internal.KafkaConsumerActor.Internal.Commit
 import akka.kafka.scaladsl.Consumer.Control
 import akka.pattern.AskTimeoutException
-import akka.stream.SourceShape
+import akka.stream.{Attributes, SourceShape}
 import akka.stream.scaladsl.Source
 import akka.stream.stage.GraphStageLogic
 import akka.util.Timeout
@@ -34,8 +34,9 @@ private[kafka] final class CommittableSource[K, V](settings: ConsumerSettings[K,
     extends KafkaSourceStage[K, V, CommittableMessage[K, V]](
       s"CommittableSource ${subscription.renderStageAttribute}"
     ) {
-  override protected def logic(shape: SourceShape[CommittableMessage[K, V]]): GraphStageLogic with Control =
-    new SingleSourceLogic[K, V, CommittableMessage[K, V]](shape, settings, subscription)
+  override protected def logic(shape: SourceShape[CommittableMessage[K, V]],
+                               attributes: Attributes): GraphStageLogic with Control =
+    new SingleSourceLogic[K, V, CommittableMessage[K, V]](shape, settings, subscription, attributes)
     with CommittableMessageBuilder[K, V] {
       override def metadataFromRecord(record: ConsumerRecord[K, V]): String = _metadataFromRecord(record)
       override def groupId: String = settings.properties(ConsumerConfig.GROUP_ID_CONFIG)
@@ -55,8 +56,9 @@ private[kafka] final class ExternalCommittableSource[K, V](consumer: ActorRef,
     extends KafkaSourceStage[K, V, CommittableMessage[K, V]](
       s"ExternalCommittableSource ${subscription.renderStageAttribute}"
     ) {
-  override protected def logic(shape: SourceShape[CommittableMessage[K, V]]): GraphStageLogic with Control =
-    new ExternalSingleSourceLogic[K, V, CommittableMessage[K, V]](shape, consumer, subscription)
+  override protected def logic(shape: SourceShape[CommittableMessage[K, V]],
+                               attributes: Attributes): GraphStageLogic with Control =
+    new ExternalSingleSourceLogic[K, V, CommittableMessage[K, V]](shape, consumer, subscription, attributes)
     with CommittableMessageBuilder[K, V] {
       override def metadataFromRecord(record: ConsumerRecord[K, V]): String = OffsetFetchResponse.NO_METADATA
       override def groupId: String = _groupId
@@ -77,7 +79,8 @@ private[kafka] final class CommittableSubSource[K, V](settings: ConsumerSettings
       s"CommittableSubSource ${subscription.renderStageAttribute}"
     ) {
   override protected def logic(
-      shape: SourceShape[(TopicPartition, Source[CommittableMessage[K, V], NotUsed])]
+      shape: SourceShape[(TopicPartition, Source[CommittableMessage[K, V], NotUsed])],
+      attributes: Attributes
   ): GraphStageLogic with Control =
     new SubSourceLogic[K, V, CommittableMessage[K, V]](shape, settings, subscription)
     with CommittableMessageBuilder[K, V] with MetricsControl {

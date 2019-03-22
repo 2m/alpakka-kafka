@@ -7,6 +7,7 @@ package akka.kafka.internal
 import akka.annotation.InternalApi
 import akka.kafka.ConsumerMessage
 import akka.kafka.ConsumerMessage.{GroupTopicPartition, PartitionOffset}
+import akka.kafka.KafkaAttributes.TransactionalCopyRunId
 import akka.kafka.ProducerMessage.{Envelope, Results}
 import akka.kafka.internal.ProducerStage.{MessageCallback, ProducerCompletionState}
 import akka.stream.{Attributes, FlowShape}
@@ -101,6 +102,7 @@ private final class TransactionalProducerStageLogic[K, V, P](stage: Transactiona
   private var batchOffsets = TransactionBatch.empty
 
   override def preStart(): Unit = {
+    log.debug(s"Initializing transactions for run: ${inheritedAttributes.get[TransactionalCopyRunId]}")
     initTransactions()
     beginTransaction()
     resumeDemand(tryToPull = false)
