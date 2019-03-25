@@ -18,7 +18,7 @@ import akka.stream.testkit.TestSubscriber
 import akka.stream.testkit.scaladsl.StreamTestKit.assertAllStagesStopped
 import akka.stream.testkit.scaladsl.TestSink
 import net.manub.embeddedkafka.EmbeddedKafkaConfig
-import org.apache.kafka.clients.consumer.ConsumerConfig
+import org.apache.kafka.clients.consumer.{ConsumerConfig, ConsumerRecord}
 import org.apache.kafka.clients.producer.ProducerRecord
 
 import scala.concurrent.{Await, Future, TimeoutException}
@@ -330,29 +330,29 @@ class TransactionsSpec extends SpecBase(kafkaPort = KafkaPorts.TransactionsSpec)
       println("starting to count copied elements")
 
       val consumer = valuesSource(probeConsumerSettings(probeConsumerGroup), sinkTopic)
+        .map(r => (r.value(), r.offset()))
         .take(elements)
         .idleTimeout(30.seconds)
-        .alsoTo(
-          Flow[String].scan(0) { case (count, _) => count + 1 }.filter(_ % 10000 == 0).log("received").to(Sink.ignore)
-        )
         .recover {
-          case t => "no-more-elements"
+          case t => ("no-more-elements", -1)
         }
-        .filter(_ != "no-more-elements")
+        .filter(_._1 != "no-more-elements")
         .runWith(Sink.seq)
       val values = Await.result(consumer, 10.minutes)
 
       val expected = (1 to elements).map(_.toString)
       withClue("Checking for duplicates: ") {
-        val duplicates = values diff expected
+        val duplicates = values.map(_._1) diff expected
         if (duplicates.nonEmpty) {
-          fail(s"Got ${duplicates.size} duplicates. First ten: ${duplicates.take(10).mkString(", ")}")
+          val dups = values.filter(v => duplicates.contains(v._1))
+          fail(s"Got ${duplicates.size} duplicates. First ten: ${dups.take(10).mkString(", ")}")
         }
       }
       withClue("Checking for missing: ") {
-        val missing = expected diff values
+        val missing = expected diff values.map(_._1)
         if (missing.nonEmpty) {
-          fail(s"Did not get ${missing.size} expected messages. First ten: ${missing.take(10).mkString(", ")}")
+          val mis = values.filter(v => missing.contains(v._1))
+          fail(s"Did not get ${missing.size} expected messages. First ten: ${mis.take(10).mkString(", ")}")
         }
       }
 
@@ -382,12 +382,12 @@ class TransactionsSpec extends SpecBase(kafkaPort = KafkaPorts.TransactionsSpec)
   private def valuesProbeConsumer(settings: ConsumerSettings[String, String],
                                   topic: String): TestSubscriber.Probe[String] =
     valuesSource(settings, topic)
+      .map(_.value())
       .runWith(TestSink.probe)
 
   private def valuesSource(settings: ConsumerSettings[String, String],
-                           topic: String): Source[String, Consumer.Control] =
+                           topic: String): Source[ConsumerRecord[String, String], Consumer.Control] =
     Consumer
       .plainSource(settings, TopicSubscription(Set(topic), None))
       .filterNot(_.value == InitialMsg)
-      .map(_.value())
 }
