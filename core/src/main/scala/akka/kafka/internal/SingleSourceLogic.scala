@@ -43,6 +43,7 @@ import scala.concurrent.{Future, Promise}
       val partitionRevokedCB = getAsyncCallback[Set[TopicPartition]] { revokedTps =>
         tps --= revokedTps
         log.debug("Revoked partitions: {}. All partitions: {}", revokedTps, tps)
+        completeStage()
       }
 
       KafkaConsumerActor.ListenerCallbacks(
