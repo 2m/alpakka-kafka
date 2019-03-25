@@ -6,10 +6,12 @@
 package akka.kafka.scaladsl
 
 import akka.Done
+import akka.event.Logging
 import akka.kafka.ConsumerMessage.PartitionOffset
 import akka.kafka.Subscriptions.TopicSubscription
 import akka.kafka.{ProducerMessage, _}
 import akka.kafka.scaladsl.Consumer.Control
+import akka.stream.{Attributes, DelayOverflowStrategy}
 import akka.stream.scaladsl.{Keep, RestartSource, Sink, Source}
 import akka.stream.testkit.TestSubscriber
 import akka.stream.testkit.scaladsl.StreamTestKit.assertAllStagesStopped
@@ -257,6 +259,61 @@ class TransactionsSpec extends SpecBase(kafkaPort = KafkaPorts.TransactionsSpec)
       val futures: Seq[Future[Done]] = controls.map(_.shutdown())
       Await.result(Future.sequence(futures), remainingOrDefault)
     }
+
+    "drain stream on partitions rebalancing" in {
+      // Runs a copying transactional flows that delay writing to the output partition using a `delay` stage.
+      // Creates more flows than ktps to trigger partition rebalancing.
+      // The output topic should contain the same elements as the input topic.
+
+      val sourceTopic = createTopicName(1)
+      val sinkTopic = createTopic(2, partitions = 4)
+      val group = createGroupId(1)
+
+      givenInitializedTopic(sourceTopic)
+      givenInitializedTopic(sinkTopic)
+
+      val elements = 150
+      val batchSize = 10
+      Await.result(produce(sourceTopic, 1 to elements), remainingOrDefault)
+
+      val consumerSettings = consumerDefaults.withGroupId(group)
+
+      def runStream(id: String): Consumer.Control = {
+        val control: Control =
+          Transactional
+            .source(consumerSettings, TopicSubscription(Set(sourceTopic), None))
+            .filterNot(_.record.value() == InitialMsg)
+            .map { msg =>
+              ProducerMessage.single(new ProducerRecord[String, String](sinkTopic, msg.record.value), msg.partitionOffset)
+            }
+            .take(batchSize)
+            .delay(3.seconds, strategy = DelayOverflowStrategy.backpressure)
+            .addAttributes(Attributes.inputBuffer(batchSize, batchSize + 1))
+            .via(Transactional.flow(producerDefaults, s"$group-$id"))
+            .log("end", identity).addAttributes(Attributes.logLevels(onElement = Logging.InfoLevel))
+            .toMat(Sink.ignore)(Keep.left)
+            .run()
+        control
+      }
+
+      val controls: Seq[Control] = (0 until elements / batchSize)
+        .map(_.toString)
+        .map(runStream)
+
+      val probeConsumerGroup = createGroupId(2)
+
+      val probeConsumer = valuesProbeConsumer(probeConsumerSettings(probeConsumerGroup), sinkTopic)
+
+      Thread.sleep(5000)
+      probeConsumer
+        .request(elements)
+        .expectNextUnorderedN((1 to elements).map(_.toString))
+
+      probeConsumer.cancel()
+
+      val futures: Seq[Future[Done]] = controls.map(_.shutdown())
+      Await.result(Future.sequence(futures), remainingOrDefault)
+    }
   }
 
   private def transactionalCopyStream(
@@ -284,5 +341,6 @@ class TransactionsSpec extends SpecBase(kafkaPort = KafkaPorts.TransactionsSpec)
       .plainSource(settings, TopicSubscription(Set(topic), None))
       .filterNot(_.value == InitialMsg)
       .map(_.value())
+      .log("retrieved", identity).addAttributes(Attributes.logLevels(onElement = Logging.InfoLevel))
       .runWith(TestSink.probe)
 }
