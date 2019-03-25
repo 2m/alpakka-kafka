@@ -43,11 +43,11 @@ private object TransactionalProducerStage {
   }
 
   sealed trait TransactionBatch {
-    def updated(partitionOffset: PartitionOffset): TransactionBatch
+    def updated(partitionOffset: PartitionOffset): NonemptyTransactionBatch
   }
 
   final class EmptyTransactionBatch extends TransactionBatch {
-    override def updated(partitionOffset: PartitionOffset): TransactionBatch =
+    override def updated(partitionOffset: PartitionOffset): NonemptyTransactionBatch =
       new NonemptyTransactionBatch(partitionOffset)
   }
 
@@ -66,7 +66,7 @@ private object TransactionalProducerStage {
       case (gtp, offset) => new TopicPartition(gtp.topic, gtp.partition) -> new OffsetAndMetadata(offset + 1)
     }
 
-    override def updated(partitionOffset: PartitionOffset): TransactionBatch = {
+    override def updated(partitionOffset: PartitionOffset): NonemptyTransactionBatch = {
       require(
         group == partitionOffset.key.groupId,
         s"Transaction batch must contain messages from exactly 1 consumer group. $group != ${partitionOffset.key.groupId}"
@@ -146,7 +146,10 @@ private final class TransactionalProducerStageLogic[K, V, P](stage: Transactiona
 
   override val onMessageAckCb: AsyncCallback[Envelope[K, V, P]] =
     getAsyncCallback[Envelope[K, V, P]](_.passThrough match {
-      case o: ConsumerMessage.PartitionOffset => batchOffsets = batchOffsets.updated(o)
+      case o: ConsumerMessage.PartitionOffset =>
+        val upd = batchOffsets.updated(o)
+        producer.sendOffsetsToTransaction(upd.offsetMap().asJava, upd.group)
+        batchOffsets = upd
       case _ =>
     })
 
@@ -167,7 +170,7 @@ private final class TransactionalProducerStageLogic[K, V, P](stage: Transactiona
     val group = batch.group
     log.debug("Committing transaction for consumer group '{}' with offsets: {}", group, batch.offsetMap())
     val offsetMap = batch.offsetMap().asJava
-    producer.sendOffsetsToTransaction(offsetMap, group)
+    //producer.sendOffsetsToTransaction(offsetMap, group)
     producer.commitTransaction()
     batchOffsets = TransactionBatch.empty
     if (beginNewTransaction) {

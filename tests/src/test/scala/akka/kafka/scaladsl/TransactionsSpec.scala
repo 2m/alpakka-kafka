@@ -345,14 +345,14 @@ class TransactionsSpec extends SpecBase(kafkaPort = KafkaPorts.TransactionsSpec)
         val duplicates = values.map(_._1) diff expected
         if (duplicates.nonEmpty) {
           val dups = values.filter(v => duplicates.contains(v._1))
-          fail(s"Got ${duplicates.size} duplicates. First ten: ${dups.take(10).mkString(", ")}")
+          fail(s"Got ${duplicates.size} duplicates. First ten: ${dups.mkString(", ")}")
         }
       }
       withClue("Checking for missing: ") {
         val missing = expected diff values.map(_._1)
         if (missing.nonEmpty) {
           val mis = values.filter(v => missing.contains(v._1))
-          fail(s"Did not get ${missing.size} expected messages. First ten: ${mis.take(10).mkString(", ")}")
+          fail(s"Did not get ${missing.size} expected messages. First ten: ${mis.mkString(", ")}")
         }
       }
 
