@@ -7,9 +7,10 @@ package akka.kafka.internal
 
 import akka.actor.{ActorRef, Status, Terminated}
 import akka.annotation.InternalApi
+import akka.kafka.KafkaAttributes.TransactionalCopyRunId
 import akka.kafka.Subscriptions.{Assignment, AssignmentOffsetsForTimes, AssignmentWithOffset}
 import akka.kafka.{ConsumerFailed, ManualSubscription}
-import akka.stream.SourceShape
+import akka.stream.{Attributes, SourceShape}
 import akka.stream.stage.GraphStageLogic.StageActor
 import akka.stream.stage.{GraphStageLogic, OutHandler, StageLogging}
 import org.apache.kafka.clients.consumer.ConsumerRecord
@@ -24,7 +25,8 @@ import scala.concurrent.{ExecutionContext, Future}
  * Shared GraphStageLogic for [[SingleSourceLogic]] and [[ExternalSingleSourceLogic]].
  */
 @InternalApi private abstract class BaseSingleSourceLogic[K, V, Msg](
-    val shape: SourceShape[Msg]
+    val shape: SourceShape[Msg],
+    val attr: Attributes
 ) extends GraphStageLogic(shape)
     with PromiseControl
     with MetricsControl
@@ -83,6 +85,7 @@ import scala.concurrent.{ExecutionContext, Future}
     if (isAvailable(shape.out)) {
       if (buffer.hasNext) {
         val msg = buffer.next()
+        log.debug(s"Sending $msg during run [${attr.get[TransactionalCopyRunId]}]")
         push(shape.out, createMessage(msg))
         pump()
       } else if (!requested && tps.nonEmpty) {

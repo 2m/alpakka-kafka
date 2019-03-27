@@ -109,6 +109,9 @@ private final class TransactionalProducerStageLogic[K, V, P](stage: Transactiona
     scheduleOnce(commitSchedulerKey, commitInterval)
   }
 
+  override def postStop(): Unit =
+    log.debug(s"Poststop of the transactional producer for run: ${inheritedAttributes.get[TransactionalCopyRunId]}")
+
   private def resumeDemand(tryToPull: Boolean = true): Unit = {
     setHandler(stage.out, new OutHandler {
       override def onPull(): Unit = tryPull(stage.in)
@@ -167,7 +170,10 @@ private final class TransactionalProducerStageLogic[K, V, P](stage: Transactiona
 
   private def commitTransaction(batch: NonemptyTransactionBatch, beginNewTransaction: Boolean): Unit = {
     val group = batch.group
-    log.debug("Committing transaction for consumer group '{}' with offsets: {}", group, batch.offsetMap())
+    log.debug("Committing transaction [{}] for consumer group '{}' with offsets: {}",
+              inheritedAttributes.get[TransactionalCopyRunId],
+              group,
+              batch.offsetMap())
     val offsetMap = batch.offsetMap().asJava
     producer.sendOffsetsToTransaction(offsetMap, group)
     producer.commitTransaction()
@@ -190,8 +196,7 @@ private final class TransactionalProducerStageLogic[K, V, P](stage: Transactiona
   }
 
   private def abortTransaction(): Unit = {
-    println("aborting transaction")
-    log.debug("Aborting transaction")
+    log.debug(s"Aborting transaction for run: ${inheritedAttributes.get[TransactionalCopyRunId]}")
     producer.abortTransaction()
   }
 }

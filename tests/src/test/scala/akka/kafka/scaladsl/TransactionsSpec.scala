@@ -9,10 +9,11 @@ import java.util.concurrent.atomic.AtomicInteger
 
 import akka.Done
 import akka.kafka.ConsumerMessage.PartitionOffset
+import akka.kafka.KafkaAttributes.TransactionalCopyRunId
 import akka.kafka.Subscriptions.TopicSubscription
 import akka.kafka.{ProducerMessage, _}
 import akka.kafka.scaladsl.Consumer.Control
-import akka.stream.{KillSwitches, UniqueKillSwitch}
+import akka.stream.{Attributes, KillSwitches, UniqueKillSwitch}
 import akka.stream.scaladsl.{Flow, Keep, RestartSource, Sink, Source}
 import akka.stream.testkit.TestSubscriber
 import akka.stream.testkit.scaladsl.StreamTestKit.assertAllStagesStopped
@@ -294,8 +295,10 @@ class TransactionsSpec extends SpecBase(kafkaPort = KafkaPorts.TransactionsSpec)
           .onFailuresWithBackoff(10.millis, 100.millis, 0.2)(
             () => {
               val transactionId = s"$group-$id"
+              val runId = s"$transactionId-run-${uniqueId.getAndIncrement()}"
               println(s"Recreating source [$transactionId]")
               transactionalCopyStream(consumerSettings, sourceTopic, sinkTopic, transactionId)
+                .withAttributes(Attributes(TransactionalCopyRunId(runId)))
                 .scan(0) { case (count, _) => count + 1 }
                 .map { count =>
                   if (count >= restartAfter) throw new Error("Restarting transactional copy stream")
