@@ -38,7 +38,7 @@ private[kafka] final class TransactionalProducerStage[K, V, P](
 }
 
 /** Internal API */
-private object TransactionalProducerStage {
+object TransactionalProducerStage {
   object TransactionBatch {
     def empty: TransactionBatch = new EmptyTransactionBatch()
   }

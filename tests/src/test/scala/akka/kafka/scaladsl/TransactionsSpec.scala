@@ -5,12 +5,16 @@
 
 package akka.kafka.scaladsl
 
+import java.time.Duration
+import java.util.Locale
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
 import akka.Done
-import akka.kafka.ConsumerMessage.PartitionOffset
+import akka.kafka.ConsumerMessage.{GroupTopicPartition, PartitionOffset}
 import akka.kafka.KafkaAttributes.TransactionalCopyRunId
 import akka.kafka.Subscriptions.TopicSubscription
+import akka.kafka.internal.TransactionalProducerStage.{NonemptyTransactionBatch, TransactionBatch}
 import akka.kafka.{ProducerMessage, _}
 import akka.kafka.scaladsl.Consumer.Control
 import akka.stream.{Attributes, KillSwitches, UniqueKillSwitch}
@@ -20,11 +24,14 @@ import akka.stream.testkit.scaladsl.StreamTestKit.assertAllStagesStopped
 import akka.stream.testkit.scaladsl.TestSink
 import net.manub.embeddedkafka.EmbeddedKafkaConfig
 import org.apache.kafka.clients.consumer.{ConsumerConfig, ConsumerRecord}
-import org.apache.kafka.clients.producer.ProducerRecord
+import org.apache.kafka.clients.producer.{ProducerConfig, ProducerRecord}
+import org.apache.kafka.common.requests.IsolationLevel
+import org.scalatest.fixture
 
-import scala.concurrent.{Await, Future, TimeoutException}
+import scala.concurrent.{Await, Future, Promise, TimeoutException}
 import scala.concurrent.duration._
 import scala.util.{Failure, Success}
+import scala.collection.JavaConverters._
 
 class TransactionsSpec extends SpecBase(kafkaPort = KafkaPorts.TransactionsSpec) {
 
@@ -360,6 +367,132 @@ class TransactionsSpec extends SpecBase(kafkaPort = KafkaPorts.TransactionsSpec)
       }
 
       controls.map(_.shutdown())
+    }
+
+    "provide consistency when multiple transactional consumers and producers are being restarted" in {
+      val sourcePartitions = 10
+      val destinationPartitions = 4
+      val consumers = 1
+
+      val sourceTopic = createTopic(1, sourcePartitions)
+      val sinkTopic = createTopic(2, destinationPartitions)
+      val group = createGroupId(1)
+
+      givenInitializedTopic(sourceTopic)
+      givenInitializedTopic(sinkTopic)
+
+      val elements = 900 * 1000
+      val restartAfter = 1000 * 1000
+
+      val partitionSize = elements / sourcePartitions
+      val producers =
+        (0 until sourcePartitions).map(
+          part => produce(sourceTopic, ((part * partitionSize) + 1) to (partitionSize * (part + 1)), part)
+        )
+      Await.result(Future.sequence(producers), remainingOrDefault)
+
+      val completionPromise = Promise[Unit]
+
+      val uniqueId = new AtomicInteger(0)
+
+      val pollTimeout = Duration.ofMillis(50L)
+      val commitInterval = Duration.ofMillis(50L)
+
+      def runStream(id: String, completionFuture: Future[Unit]): Unit = {
+        var batchOffsets = TransactionBatch.empty
+        var processed = 0L
+        var lastCommit = System.nanoTime()
+
+        val transactionalId = s"$group-$id"
+
+        val transactionalConsumerSettings = consumerDefaults
+          .withGroupId(group)
+          .withProperty(
+            ConsumerConfig.ISOLATION_LEVEL_CONFIG,
+            IsolationLevel.READ_COMMITTED.toString.toLowerCase(Locale.ENGLISH)
+          )
+
+        val transactionalProducerSettings = producerDefaults.withProperties(
+          ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG -> true.toString,
+          ProducerConfig.TRANSACTIONAL_ID_CONFIG -> transactionalId,
+          ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION -> 1.toString
+        )
+
+        val consumer = transactionalConsumerSettings.createKafkaConsumer()
+        consumer.subscribe(Set(sourceTopic).asJava)
+
+        val producer = transactionalProducerSettings.createKafkaProducer()
+        producer.initTransactions()
+        producer.beginTransaction()
+
+        println(s"Recreating transactional processing [$transactionalId]")
+
+        while (processed < restartAfter && !completionFuture.isCompleted) {
+          val records = consumer.poll(pollTimeout)
+          println(s"Got ${records.count()} number of messages from poll")
+          for (record <- records.iterator().asScala) {
+            val producerRecord = new ProducerRecord(sinkTopic, record.key(), record.value())
+            producer.send(producerRecord)
+            processed = processed + 1
+            batchOffsets = batchOffsets.updated(
+              PartitionOffset(GroupTopicPartition(group, record.topic(), record.partition()), record.offset())
+            )
+
+            if (System.nanoTime() >= lastCommit + commitInterval.toNanos) {
+              val offsetMap = batchOffsets.asInstanceOf[NonemptyTransactionBatch].offsetMap()
+              println(s"Committing $offsetMap")
+              producer.sendOffsetsToTransaction(offsetMap.asJava, group)
+              producer.commitTransaction()
+              lastCommit = System.nanoTime()
+              batchOffsets = TransactionBatch.empty
+              producer.beginTransaction()
+            }
+          }
+        }
+
+        println(s"Stopping transactional processing after $processed records processed")
+
+        producer.close(1, TimeUnit.SECONDS)
+        consumer.close(Duration.ofSeconds(1))
+      }
+
+      val controls: Seq[Future[Unit]] = (0 until consumers)
+        .map(_.toString)
+        .map(id => Future { runStream(id, completionPromise.future) })
+
+      val probeConsumerGroup = createGroupId(2)
+
+      println("starting to count copied elements")
+
+      val consumer = valuesSource(probeConsumerSettings(probeConsumerGroup), sinkTopic)
+        .map(r => (r.value(), r.offset()))
+        .take(elements)
+        .idleTimeout(30.seconds)
+        .recover {
+          case t => ("no-more-elements", -1)
+        }
+        .filter(_._1 != "no-more-elements")
+        .runWith(Sink.seq)
+      val values = Await.result(consumer, 10.minutes)
+      completionPromise.success(())
+
+      val expected = (1 to elements).map(_.toString)
+      withClue("Checking for duplicates: ") {
+        val duplicates = values.map(_._1) diff expected
+        if (duplicates.nonEmpty) {
+          val dups = values.filter(v => duplicates.contains(v._1))
+          fail(s"Got ${duplicates.size} duplicates. First ten: ${dups.mkString(", ")}")
+        }
+      }
+      withClue("Checking for missing: ") {
+        val missing = expected diff values.map(_._1)
+        if (missing.nonEmpty) {
+          val mis = values.filter(v => missing.contains(v._1))
+          fail(s"Did not get ${missing.size} expected messages. First ten: ${mis.mkString(", ")}")
+        }
+      }
+
+      //controls.map(_.shutdown())
     }
   }
 
