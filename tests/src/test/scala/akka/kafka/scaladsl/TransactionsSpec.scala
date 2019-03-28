@@ -382,7 +382,7 @@ class TransactionsSpec extends SpecBase(kafkaPort = KafkaPorts.TransactionsSpec)
       givenInitializedTopic(sinkTopic)
 
       val elements = 900 * 1000
-      val restartAfter = 1000 * 1000
+      val restartAfter = 10 * 1000
 
       val partitionSize = elements / sourcePartitions
       val producers =
@@ -397,6 +397,11 @@ class TransactionsSpec extends SpecBase(kafkaPort = KafkaPorts.TransactionsSpec)
 
       val pollTimeout = Duration.ofMillis(50L)
       val commitInterval = Duration.ofMillis(50L)
+
+      def continuouslyRunStream(id: String, completionFuture: Future[Unit]) =
+        while (!completionFuture.isCompleted) {
+          runStream(id, completionFuture)
+        }
 
       def runStream(id: String, completionFuture: Future[Unit]): Unit = {
         var batchOffsets = TransactionBatch.empty
@@ -428,7 +433,8 @@ class TransactionsSpec extends SpecBase(kafkaPort = KafkaPorts.TransactionsSpec)
         println(s"Recreating transactional processing [$transactionalId]")
 
         def commit() =
-          if (System.nanoTime() >= lastCommit + commitInterval.toNanos) {
+          if (System.nanoTime() >= lastCommit + commitInterval.toNanos && batchOffsets
+                .isInstanceOf[NonemptyTransactionBatch]) {
             val offsetMap = batchOffsets.asInstanceOf[NonemptyTransactionBatch].offsetMap()
             println(s"Committing $offsetMap")
             producer.sendOffsetsToTransaction(offsetMap.asJava, group)
@@ -440,7 +446,6 @@ class TransactionsSpec extends SpecBase(kafkaPort = KafkaPorts.TransactionsSpec)
 
         while (processed < restartAfter && !completionFuture.isCompleted) {
           val records = consumer.poll(pollTimeout)
-          println(s"Got ${records.count()} number of messages from poll")
           for (record <- records.iterator().asScala) {
             val producerRecord = new ProducerRecord(sinkTopic, record.key(), record.value())
             producer.send(producerRecord)
@@ -463,7 +468,7 @@ class TransactionsSpec extends SpecBase(kafkaPort = KafkaPorts.TransactionsSpec)
 
       val controls: Seq[Future[Unit]] = (0 until consumers)
         .map(_.toString)
-        .map(id => Future { runStream(id, completionPromise.future) })
+        .map(id => Future { continuouslyRunStream(id, completionPromise.future) })
 
       val probeConsumerGroup = createGroupId(2)
 
