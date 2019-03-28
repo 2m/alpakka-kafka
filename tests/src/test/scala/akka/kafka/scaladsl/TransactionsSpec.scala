@@ -389,7 +389,7 @@ class TransactionsSpec extends SpecBase(kafkaPort = KafkaPorts.TransactionsSpec)
         (0 until sourcePartitions).map(
           part => produce(sourceTopic, ((part * partitionSize) + 1) to (partitionSize * (part + 1)), part)
         )
-      Await.result(Future.sequence(producers), remainingOrDefault)
+      Await.result(Future.sequence(producers), 60.seconds)
 
       val completionPromise = Promise[Unit]
 
@@ -427,6 +427,17 @@ class TransactionsSpec extends SpecBase(kafkaPort = KafkaPorts.TransactionsSpec)
 
         println(s"Recreating transactional processing [$transactionalId]")
 
+        def commit() =
+          if (System.nanoTime() >= lastCommit + commitInterval.toNanos) {
+            val offsetMap = batchOffsets.asInstanceOf[NonemptyTransactionBatch].offsetMap()
+            println(s"Committing $offsetMap")
+            producer.sendOffsetsToTransaction(offsetMap.asJava, group)
+            producer.commitTransaction()
+            lastCommit = System.nanoTime()
+            batchOffsets = TransactionBatch.empty
+            producer.beginTransaction()
+          }
+
         while (processed < restartAfter && !completionFuture.isCompleted) {
           val records = consumer.poll(pollTimeout)
           println(s"Got ${records.count()} number of messages from poll")
@@ -438,16 +449,10 @@ class TransactionsSpec extends SpecBase(kafkaPort = KafkaPorts.TransactionsSpec)
               PartitionOffset(GroupTopicPartition(group, record.topic(), record.partition()), record.offset())
             )
 
-            if (System.nanoTime() >= lastCommit + commitInterval.toNanos) {
-              val offsetMap = batchOffsets.asInstanceOf[NonemptyTransactionBatch].offsetMap()
-              println(s"Committing $offsetMap")
-              producer.sendOffsetsToTransaction(offsetMap.asJava, group)
-              producer.commitTransaction()
-              lastCommit = System.nanoTime()
-              batchOffsets = TransactionBatch.empty
-              producer.beginTransaction()
-            }
+            commit()
           }
+
+          commit()
         }
 
         println(s"Stopping transactional processing after $processed records processed")
