@@ -8,7 +8,7 @@ package akka.kafka.testkit
 import akka.Done
 import akka.annotation.ApiMayChange
 import akka.kafka.ConsumerMessage
-import akka.kafka.ConsumerMessage.{CommittableOffset, GroupTopicPartition, PartitionOffset}
+import akka.kafka.ConsumerMessage.{CommittableOffset, GroupTopicPartition, PartitionOffset, PartitionOffsetCommitter}
 import akka.kafka.internal.{CommittableOffsetImpl, InternalCommitter}
 import org.apache.kafka.clients.consumer.ConsumerRecord
 
@@ -23,7 +23,7 @@ object ConsumerResultFactory {
 
   val fakeCommitter = new InternalCommitter {
     override def commit(
-        offsets: immutable.Seq[ConsumerMessage.PartitionOffsetMetadata]
+        offsets: immutable.Iterable[ConsumerMessage.PartitionOffsetMetadata]
     ): Future[Done] = Future.successful(Done)
     override def commit(batch: ConsumerMessage.CommittableOffsetBatch): Future[Done] = Future.successful(Done)
   }
@@ -51,7 +51,7 @@ object ConsumerResultFactory {
 
   def transactionalMessage[K, V](
       record: ConsumerRecord[K, V],
-      partitionOffset: PartitionOffset
+      partitionOffset: PartitionOffsetCommitter,
   ): ConsumerMessage.TransactionalMessage[K, V] = ConsumerMessage.TransactionalMessage(record, partitionOffset)
 
 }

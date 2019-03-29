@@ -272,7 +272,7 @@ class TransactionsSpec extends SpecBase(kafkaPort = KafkaPorts.TransactionsSpec)
       givenInitializedTopic(sourceTopic)
       givenInitializedTopic(sinkTopic)
 
-      val elements = 150
+      val elements = 100
       val batchSize = 10
       Await.result(produce(sourceTopic, 1 to elements), remainingOrDefault)
 
@@ -284,13 +284,15 @@ class TransactionsSpec extends SpecBase(kafkaPort = KafkaPorts.TransactionsSpec)
             .source(consumerSettings, TopicSubscription(Set(sourceTopic), None))
             .filterNot(_.record.value() == InitialMsg)
             .map { msg =>
-              ProducerMessage.single(new ProducerRecord[String, String](sinkTopic, msg.record.value), msg.partitionOffset)
+              ProducerMessage.single(new ProducerRecord[String, String](sinkTopic, msg.record.value),
+                                     msg.partitionOffset)
             }
             .take(batchSize)
             .delay(3.seconds, strategy = DelayOverflowStrategy.backpressure)
             .addAttributes(Attributes.inputBuffer(batchSize, batchSize + 1))
             .via(Transactional.flow(producerDefaults, s"$group-$id"))
-            .log("end", identity).addAttributes(Attributes.logLevels(onElement = Logging.InfoLevel))
+            .log(s"end-$id", x => x.passThrough)
+            .addAttributes(Attributes.logLevels(onElement = Logging.InfoLevel))
             .toMat(Sink.ignore)(Keep.left)
             .run()
         control
@@ -304,7 +306,7 @@ class TransactionsSpec extends SpecBase(kafkaPort = KafkaPorts.TransactionsSpec)
 
       val probeConsumer = valuesProbeConsumer(probeConsumerSettings(probeConsumerGroup), sinkTopic)
 
-      Thread.sleep(5000)
+      Thread.sleep(8000)
       probeConsumer
         .request(elements)
         .expectNextUnorderedN((1 to elements).map(_.toString))
@@ -341,6 +343,6 @@ class TransactionsSpec extends SpecBase(kafkaPort = KafkaPorts.TransactionsSpec)
       .plainSource(settings, TopicSubscription(Set(topic), None))
       .filterNot(_.value == InitialMsg)
       .map(_.value())
-      .log("retrieved", identity).addAttributes(Attributes.logLevels(onElement = Logging.InfoLevel))
+//      .log("retrieved", identity).addAttributes(Attributes.logLevels(onElement = Logging.InfoLevel))
       .runWith(TestSink.probe)
 }
