@@ -71,20 +71,21 @@ import scala.concurrent.{Future, Promise}
     if (!isClosed(shape.out)) {
       complete(shape.out)
     }
-    sourceActor.become {
-      case (_, Terminated(ref)) if ref == consumerActor =>
-        onShutdown()
-        completeStage()
-    }
+    sourceActor.become(shuttingDownReceive)
     stopConsumerActor()
   }
 
-  protected def stopConsumerActor() = {
+  protected def shuttingDownReceive: PartialFunction[(ActorRef, Any), Unit] = {
+    case (_, Terminated(ref)) if ref == consumerActor =>
+      onShutdown()
+      completeStage()
+  }
+
+  protected def stopConsumerActor(): Unit =
     materializer.scheduleOnce(settings.stopTimeout, new Runnable {
       override def run(): Unit =
         consumerActor.tell(KafkaConsumerActor.Internal.Stop, sourceActor.ref)
     })
-  }
 
   protected def partitionAssignedCB(assignedTps: Set[TopicPartition]): Unit = {
     tps ++= assignedTps

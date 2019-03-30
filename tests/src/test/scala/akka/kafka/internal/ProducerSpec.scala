@@ -76,7 +76,7 @@ class ProducerSpec(_system: ActorSystem)
       tuple._1,
       ConsumerMessage
         .PartitionOffset(GroupTopicPartition(group, tuple._1.topic(), 1), tuple._2.offset())
-        .withCommmitter(committer)
+        .withCommmittedMarker(committer)
     )
   def result(r: Record, m: RecordMetadata) = Result(m, ProducerMessage.Message(r, NotUsed))
   val toResult = (result _).tupled
