@@ -272,7 +272,7 @@ class TransactionsSpec extends SpecBase(kafkaPort = KafkaPorts.TransactionsSpec)
       givenInitializedTopic(sourceTopic)
       givenInitializedTopic(sinkTopic)
 
-      val elements = 100
+      val elements = 200
       val batchSize = 10
       Await.result(produce(sourceTopic, 1 to elements), remainingOrDefault)
 

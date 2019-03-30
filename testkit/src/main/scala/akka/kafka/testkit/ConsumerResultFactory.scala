@@ -8,7 +8,12 @@ package akka.kafka.testkit
 import akka.Done
 import akka.annotation.ApiMayChange
 import akka.kafka.ConsumerMessage
-import akka.kafka.ConsumerMessage.{CommittableOffset, GroupTopicPartition, PartitionOffset, PartitionOffsetCommitter}
+import akka.kafka.ConsumerMessage.{
+  CommittableOffset,
+  GroupTopicPartition,
+  PartitionOffset,
+  PartitionOffsetCommittedMarker
+}
 import akka.kafka.internal.{CommittableOffsetImpl, InternalCommitter}
 import org.apache.kafka.clients.consumer.ConsumerRecord
 
@@ -23,15 +28,15 @@ object ConsumerResultFactory {
 
   val fakeCommitter = new InternalCommitter {
     override def commit(
-        offsets: immutable.Iterable[ConsumerMessage.PartitionOffsetMetadata]
+        offsets: immutable.Seq[ConsumerMessage.PartitionOffsetMetadata]
     ): Future[Done] = Future.successful(Done)
     override def commit(batch: ConsumerMessage.CommittableOffsetBatch): Future[Done] = Future.successful(Done)
   }
 
   def partitionOffset(groupId: String, topic: String, partition: Int, offset: Long): ConsumerMessage.PartitionOffset =
-    ConsumerMessage.PartitionOffset(ConsumerMessage.GroupTopicPartition(groupId, topic, partition), offset)
+    new ConsumerMessage.PartitionOffset(ConsumerMessage.GroupTopicPartition(groupId, topic, partition), offset)
 
-  def partitionOffset(key: GroupTopicPartition, offset: Long) = ConsumerMessage.PartitionOffset(key, offset)
+  def partitionOffset(key: GroupTopicPartition, offset: Long) = new ConsumerMessage.PartitionOffset(key, offset)
 
   def committableOffset(groupId: String,
                         topic: String,
@@ -51,7 +56,7 @@ object ConsumerResultFactory {
 
   def transactionalMessage[K, V](
       record: ConsumerRecord[K, V],
-      partitionOffset: PartitionOffsetCommitter,
+      partitionOffset: PartitionOffsetCommittedMarker,
   ): ConsumerMessage.TransactionalMessage[K, V] = ConsumerMessage.TransactionalMessage(record, partitionOffset)
 
 }
