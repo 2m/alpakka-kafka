@@ -10,7 +10,7 @@ import java.util.concurrent.CompletionStage
 
 import akka.Done
 import akka.annotation.DoNotInherit
-import akka.kafka.internal.CommittableOffsetBatchImpl
+import akka.kafka.internal.{CommittableOffsetBatchImpl, CommittedMarker}
 import org.apache.kafka.clients.consumer.ConsumerRecord
 
 import scala.concurrent.Future
@@ -78,15 +78,27 @@ object ConsumerMessage {
   /**
    * Offset position for a groupId, topic, partition.
    */
-  final case class PartitionOffset(key: GroupTopicPartition, offset: Long) {
+  class PartitionOffset(val key: GroupTopicPartition, val offset: Long) {
     def withMetadata(metadata: String) =
       PartitionOffsetMetadata(key, offset, metadata)
+
+    def withCommmittedMarker(committedMarker: CommittedMarker) =
+      PartitionOffsetCommittedMarker(key, offset, committedMarker)
+  }
+
+  object PartitionOffset {
+    def apply(key: GroupTopicPartition, offset: Long) = new PartitionOffset(key, offset)
   }
 
   /**
    * Offset position and metadata for a groupId, topic, partition.
    */
   final case class PartitionOffsetMetadata(key: GroupTopicPartition, offset: Long, metadata: String)
+
+  final case class PartitionOffsetCommittedMarker(override val key: GroupTopicPartition,
+                                                  override val offset: Long,
+                                                  private[kafka] val committer: CommittedMarker)
+      extends PartitionOffset(key, offset)
 
   /**
    * groupId, topic, partition key for an offset position.

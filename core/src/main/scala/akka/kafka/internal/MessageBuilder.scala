@@ -41,15 +41,19 @@ private[kafka] trait PlainMessageBuilder[K, V] extends MessageBuilder[K, V, Cons
 @InternalApi
 private[kafka] trait TransactionalMessageBuilder[K, V] extends MessageBuilder[K, V, TransactionalMessage[K, V]] {
   def groupId: String
+  def committedMarker: CommittedMarker
+  def onMessage(consumerMessage: ConsumerRecord[K, V]): Unit
 
   override def createMessage(rec: ConsumerRecord[K, V]) = {
-    val offset = ConsumerMessage.PartitionOffset(
+    onMessage(rec)
+    val offset = PartitionOffsetCommittedMarker(
       GroupTopicPartition(
         groupId = groupId,
         topic = rec.topic,
         partition = rec.partition
       ),
-      offset = rec.offset
+      offset = rec.offset,
+      committedMarker
     )
     ConsumerMessage.TransactionalMessage(rec, offset)
   }
@@ -63,7 +67,7 @@ private[kafka] trait CommittableMessageBuilder[K, V] extends MessageBuilder[K, V
   def metadataFromRecord(record: ConsumerRecord[K, V]): String
 
   override def createMessage(rec: ConsumerRecord[K, V]) = {
-    val offset = ConsumerMessage.PartitionOffset(
+    val offset = new ConsumerMessage.PartitionOffset(
       GroupTopicPartition(
         groupId = groupId,
         topic = rec.topic,
@@ -94,6 +98,13 @@ private[kafka] trait InternalCommitter {
   // Commit all offsets (of different topics) belonging to the same stage
   def commit(offsets: immutable.Seq[PartitionOffsetMetadata]): Future[Done]
   def commit(batch: CommittableOffsetBatch): Future[Done]
+}
+
+/** Internal API */
+@InternalApi
+private[kafka] trait CommittedMarker {
+  // Marks offsets as already committed
+  def committed(offsets: immutable.Iterable[PartitionOffset]): Future[Done]
 }
 
 /** Internal API */
