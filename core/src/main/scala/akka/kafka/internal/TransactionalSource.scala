@@ -38,9 +38,9 @@ private[kafka] final class TransactionalSource[K, V](consumerSettings: ConsumerS
 
   private trait InFlightRecords {
     // Assumes that offsets per topic partition are added in the increasing order
-    def add(offsets: Map[TopicPartition, Offset])
-    def committed(offsets: Map[TopicPartition, Offset])
-    def revoke(revokedTps: Set[TopicPartition])
+    def add(offsets: Map[TopicPartition, Offset]): Unit
+    def committed(offsets: Map[TopicPartition, Offset]): Unit
+    def revoke(revokedTps: Set[TopicPartition]): Unit
 
     def empty(): Boolean
   }
@@ -120,9 +120,8 @@ private[kafka] final class TransactionalSource[K, V](consumerSettings: ConsumerS
         CommittedMarkerRef(sourceActor.ref, commitTimeout)(ec)
       }
 
-      override def onMessage(rec: ConsumerRecord[K, V]): Unit = {
+      override def onMessage(rec: ConsumerRecord[K, V]): Unit =
         inFlightRecords.add(Map(new TopicPartition(rec.topic(), rec.partition()) -> rec.offset()))
-      }
 
       override protected def stopConsumerActor(): Unit =
         sourceActor.ref.tell(Drain(consumerActor, KafkaConsumerActor.Internal.Stop), sourceActor.ref)

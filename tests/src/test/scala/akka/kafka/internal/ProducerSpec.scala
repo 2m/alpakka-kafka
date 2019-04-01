@@ -594,9 +594,9 @@ class CommittedMarkerMock {
   when(
     mock.committed(mockito.ArgumentMatchers.any[immutable.Iterable[ConsumerMessage.PartitionOffset]])
   ).thenAnswer(new Answer[Future[Done]] {
-      override def answer(invocation: InvocationOnMock): Future[Done] =
-        Future.successful(Done)
-    })
+    override def answer(invocation: InvocationOnMock): Future[Done] =
+      Future.successful(Done)
+  })
 
   def verifyOffsets(pos: ConsumerMessage.PartitionOffsetCommittedMarker*): Future[Done] =
     Mockito

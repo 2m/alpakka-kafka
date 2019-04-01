@@ -7,11 +7,7 @@ package akka.kafka.internal
 import akka.Done
 import akka.annotation.InternalApi
 import akka.kafka.ConsumerMessage
-import akka.kafka.ConsumerMessage.{
-  GroupTopicPartition,
-  PartitionOffset,
-  PartitionOffsetCommittedMarker,
-}
+import akka.kafka.ConsumerMessage.{GroupTopicPartition, PartitionOffset, PartitionOffsetCommittedMarker}
 import akka.kafka.ProducerMessage.{Envelope, Results}
 import akka.kafka.internal.ProducerStage.{MessageCallback, ProducerCompletionState}
 import akka.stream.{Attributes, FlowShape}
