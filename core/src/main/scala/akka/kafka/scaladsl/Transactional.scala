@@ -28,7 +28,7 @@ object Transactional {
    */
   def source[K, V](settings: ConsumerSettings[K, V],
                    subscription: Subscription): Source[TransactionalMessage[K, V], Control] =
-    Source.fromGraph(new TransactionalSource[K, V](settings, subscription))
+    Source.fromGraph(new TransactionalSource[K, V](settings, subscription, settings.commitTimeout))
 
   /**
    * Sink that is aware of the [[ConsumerMessage.TransactionalMessage.partitionOffset]] from a [[Transactional.source]].  It will
