@@ -175,6 +175,8 @@ private final class TransactionalProducerStageLogic[K, V, P](stage: Transactiona
 
   override def onCompletionFailure(ex: Throwable): Unit = {
     log.debug("Aborting transaction due to stage failure")
+    log.error("Exception is:", ex)
+    ex.printStackTrace()
     abortTransaction()
     super.onCompletionFailure(ex)
   }
