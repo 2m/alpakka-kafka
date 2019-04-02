@@ -112,6 +112,7 @@ private[kafka] final class TransactionalSource[K, V](consumerSettings: ConsumerS
                 sourceActor.ref ! Drain(ack, msg)
             })
           }
+        case msg => log.debug(s"Unhandled in TransactionalSource: $msg")
       }
 
       override def groupId: String = txConsumerSettings.properties(ConsumerConfig.GROUP_ID_CONFIG)
