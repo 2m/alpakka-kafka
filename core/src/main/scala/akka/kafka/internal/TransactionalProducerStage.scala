@@ -151,9 +151,9 @@ private final class TransactionalProducerStageLogic[K, V, P](stage: Transactiona
   private def maybeCommitTransaction(beginNewTransaction: Boolean = true): Unit = {
     val awaitingConf = awaitingConfirmation.get
     batchOffsets match {
-      case batch: NonemptyTransactionBatch if awaitingConf == 0 =>
+      case batch: NonemptyTransactionBatch if awaitingConf == 0 && !hasBeenPulled(stage.in) =>
         commitTransaction(batch, beginNewTransaction)
-      case _ if awaitingConf > 0 =>
+      case _ if awaitingConf > 0 || hasBeenPulled(stage.in) =>
         suspendDemand()
         scheduleOnce(commitSchedulerKey, messageDrainInterval)
       case _ =>
