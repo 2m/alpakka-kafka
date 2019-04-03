@@ -105,6 +105,7 @@ private final class TransactionalProducerStageLogic[K, V, P](stage: Transactiona
 
   import TransactionalProducerStage._
 
+  case class WaitingForLastMessage(attemptsLeft: Int = 100)
   private val commitSchedulerKey = "commit"
   private val messageDrainInterval = 10.milliseconds
 
@@ -143,16 +144,23 @@ private final class TransactionalProducerStageLogic[K, V, P](stage: Transactiona
     demandSuspended = true
   }
 
-  override protected def onTimer(timerKey: Any): Unit =
-    if (timerKey == commitSchedulerKey) {
-      maybeCommitTransaction()
-    }
+  override protected def onTimer(timerKey: Any): Unit = timerKey match {
+    case `commitSchedulerKey` => maybeCommitTransaction()
+    case key: WaitingForLastMessage => maybeCommitTransaction(true, key)
+  }
 
-  private def maybeCommitTransaction(beginNewTransaction: Boolean = true): Unit = {
+  private def maybeCommitTransaction(beginNewTransaction: Boolean = true,
+                                     waitingForLastMessage: WaitingForLastMessage = WaitingForLastMessage()): Unit = {
     val awaitingConf = awaitingConfirmation.get
     batchOffsets match {
-      case batch: NonemptyTransactionBatch if awaitingConf == 0 && !hasBeenPulled(stage.in) =>
-        commitTransaction(batch, beginNewTransaction)
+      case batch: NonemptyTransactionBatch if awaitingConf == 0 =>
+        if (!hasBeenPulled(stage.in) || waitingForLastMessage.attemptsLeft == 0) {
+          commitTransaction(batch, beginNewTransaction)
+        } else {
+          suspendDemand()
+          scheduleOnce(waitingForLastMessage.copy(attemptsLeft = waitingForLastMessage.attemptsLeft - 1),
+                       messageDrainInterval)
+        }
       case _ if awaitingConf > 0 || hasBeenPulled(stage.in) =>
         suspendDemand()
         scheduleOnce(commitSchedulerKey, messageDrainInterval)
