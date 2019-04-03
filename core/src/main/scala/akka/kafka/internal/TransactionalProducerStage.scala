@@ -70,7 +70,7 @@ private object TransactionalProducerStage {
     }
 
     def internalCommit(): Future[Done] =
-      committedMarker.committed(offsets.map { case (gtp, offset) => new PartitionOffset(gtp, offset) })
+      committedMarker.committed(offsetMap())
 
     override def updated(partitionOffset: PartitionOffsetCommittedMarker): TransactionBatch = {
       require(

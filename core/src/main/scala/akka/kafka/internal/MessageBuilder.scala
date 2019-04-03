@@ -18,6 +18,7 @@ import akka.kafka.ConsumerMessage.{
   _
 }
 import org.apache.kafka.clients.consumer.{ConsumerRecord, OffsetAndMetadata}
+import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.requests.OffsetFetchResponse
 
 import scala.collection.JavaConverters._
@@ -104,7 +105,7 @@ private[kafka] trait InternalCommitter {
 @InternalApi
 private[kafka] trait CommittedMarker {
   // Marks offsets as already committed
-  def committed(offsets: immutable.Iterable[PartitionOffset]): Future[Done]
+  def committed(offsets: Map[TopicPartition, OffsetAndMetadata]): Future[Done]
 }
 
 /** Internal API */

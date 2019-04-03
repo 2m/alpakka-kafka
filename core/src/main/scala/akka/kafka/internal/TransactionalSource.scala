@@ -16,7 +16,7 @@ import akka.kafka.{ConsumerMessage, ConsumerSettings, Subscription}
 import akka.stream.SourceShape
 import akka.stream.stage.GraphStageLogic
 import akka.util.Timeout
-import org.apache.kafka.clients.consumer.{ConsumerConfig, ConsumerRecord}
+import org.apache.kafka.clients.consumer.{ConsumerConfig, ConsumerRecord, OffsetAndMetadata}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.requests.IsolationLevel
 
@@ -83,7 +83,7 @@ private[kafka] final class TransactionalSource[K, V](consumerSettings: ConsumerS
 
   case object Drained
   case class Drain[T](ack: ActorRef, msg: T)
-  case class Committed(offsets: Iterable[ConsumerMessage.PartitionOffset])
+  case class Committed(offsets: Map[TopicPartition, OffsetAndMetadata])
 
   override protected def logic(shape: SourceShape[TransactionalMessage[K, V]]): GraphStageLogic with Control =
     new SingleSourceLogic[K, V, TransactionalMessage[K, V]](shape, txConsumerSettings, subscription)
@@ -98,8 +98,8 @@ private[kafka] final class TransactionalSource[K, V](consumerSettings: ConsumerS
       override def shuttingDownReceive = super.shuttingDownReceive.orElse(drainHandling)
 
       def drainHandling: PartialFunction[(ActorRef, Any), Unit] = {
-        case (sender, KafkaConsumerActor.Internal.Committed(offsets)) =>
-          inFlightRecords.committed(offsets.mapValues(_.offset()))
+        case (sender, Committed(offsets)) =>
+          inFlightRecords.committed(offsets.mapValues(_.offset() - 1))
           sender ! Done
         case (_, Drain(ack, msg)) =>
           if (inFlightRecords.empty()) {
@@ -112,7 +112,6 @@ private[kafka] final class TransactionalSource[K, V](consumerSettings: ConsumerS
                 sourceActor.ref ! Drain(ack, msg)
             })
           }
-        case msg => log.debug(s"Unhandled in TransactionalSource: $msg")
       }
 
       override def groupId: String = txConsumerSettings.properties(ConsumerConfig.GROUP_ID_CONFIG)
@@ -144,7 +143,7 @@ private[kafka] final class TransactionalSource[K, V](consumerSettings: ConsumerS
   private[kafka] final case class CommittedMarkerRef(sourceActor: ActorRef, markingTimeout: FiniteDuration)(
       implicit ec: ExecutionContext
   ) extends CommittedMarker {
-    override def committed(offsets: Iterable[ConsumerMessage.PartitionOffset]): Future[Done] = {
+    override def committed(offsets: Map[TopicPartition, OffsetAndMetadata]): Future[Done] = {
       import akka.pattern.ask
       sourceActor
         .ask(Committed(offsets))(Timeout(commitTimeout))

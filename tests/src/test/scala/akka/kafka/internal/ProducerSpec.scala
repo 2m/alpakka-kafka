@@ -592,7 +592,7 @@ class ProducerMock[K, V](handler: ProducerMock.Handler[K, V])(implicit ec: Execu
 class CommittedMarkerMock {
   val mock = Mockito.mock(classOf[CommittedMarker])
   when(
-    mock.committed(mockito.ArgumentMatchers.any[immutable.Iterable[ConsumerMessage.PartitionOffset]])
+    mock.committed(mockito.ArgumentMatchers.any[Map[TopicPartition, OffsetAndMetadata]])
   ).thenAnswer(new Answer[Future[Done]] {
     override def answer(invocation: InvocationOnMock): Future[Done] =
       Future.successful(Done)
@@ -603,8 +603,7 @@ class CommittedMarkerMock {
       .verify(mock, Mockito.only())
       .committed(
         mockito.ArgumentMatchers.eq(
-          immutable.Iterable[ConsumerMessage.PartitionOffset]() ++ pos
-            .map(po => ConsumerMessage.PartitionOffset(po.key, po.offset))
+          pos.map(p => new TopicPartition(p.key.topic, p.key.partition) -> new OffsetAndMetadata(p.offset + 1)).toMap
         )
       )
 }
